@@ -11,10 +11,14 @@ const wss = new WebSocket.Server({ server });
 
 const { predictIntent } = require('./nlp/nlpService');
 const { generateResponse} = require('./nlp/responseGenerator');
+const { addClient, startScheduling } = require('./src/services/schedulerService');
+
+const userContexts = {};
 
 
 app.use(express.json());
 
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 if(process.env.DB_URI) {
     mongoose.connect(process.env.DB_URI, {
@@ -34,6 +38,10 @@ app.get('/', (req, res) => {
 //lógica do webSocket
 wss.on('connection', ws => {
     console.log('cliente conectado via websocket');
+    addClient(ws);
+
+    const clientId = Math.random().toString(36).substring(7);
+    userContexts[clientId] = { history: [] };
 
     ws.on('message', async message => {
         console.log(`recebido ${message}`);
@@ -41,6 +49,11 @@ wss.on('connection', ws => {
             const userMessage = JSON.parse(message);
             const aiResponde = await processUserMessage(userMessage.text);
             ws.send(JSON.stringify({text: aiResponde}));
+
+            userContexts[clientId].history.push({ role: 'user', text: userMessage.text });
+            const aiResponse = await processUserMessage(userMessage.text, userContexts[clientId].history);
+            userContexts[clientId].history.push({ role: 'ai', text: aiResponse });
+            ws.send(JSON.stringify({ text: aiResponse }));
         } catch (error){
             console.error('erro ao processar mensagem do websocket: ', error);
             ws.send(JSON.stringify({text: 'desculpe, houve um erro.'}));
@@ -60,6 +73,7 @@ const PORT = process.env.PORT || 3000;
 server.LISTEN(PORT, () => {
     console.log(`Server rodando na port ${PORT}`);
     console.log(`Acesse http://localhost:${PORT}`);
+    startScheduling();
 });
 
 

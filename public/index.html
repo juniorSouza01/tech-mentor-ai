@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechMentor AI Chatbot</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; }
+        #chat-container { max-width: 600px; margin: 20px auto; background-color: #fff; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; height: 70vh; }
+        #messages { flex-grow: 1; padding: 20px; overflow-y: auto; border-bottom: 1px solid #eee; }
+        .message { margin-bottom: 10px; }
+        .user-message { text-align: right; }
+        .ai-message { text-align: left; }
+        .user-message .bubble { background-color: #007bff; color: #fff; padding: 10px 15px; border-radius: 15px 15px 0 15px; display: inline-block; max-width: 80%; }
+        .ai-message .bubble { background-color: #e2e6ea; color: #333; padding: 10px 15px; border-radius: 15px 15px 15px 0; display: inline-block; max-width: 80%; }
+        #input-form { display: flex; padding: 10px; border-top: 1px solid #eee; }
+        #message-input { flex-grow: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; margin-right: 10px; font-size: 1rem; }
+        #send-button { background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-size: 1rem; }
+        #send-button:hover { background-color: #218838; }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="messages"></div>
+        <form id="input-form">
+            <input type="text" id="message-input" placeholder="Digite sua mensagem...">
+            <button type="submit" id="send-button">Enviar</button>
+        </form>
+    </div>
+
+    <script>
+        const messagesDiv = document.getElementById('messages');
+        const messageInput = document.getElementById('message-input');
+        const inputForm = document.getElementById('input-form');
+
+        const ws = new WebSocket('ws://localhost:3000');
+
+        ws.onopen = () => {
+            console.log('Conectado ao servidor WebSocket');
+        };
+
+        ws.onmessage = event => {
+            const data = JSON.parse(event.data);
+            addMessage(data.text, 'ai-message');
+        };
+
+        ws.onclose = () => {
+            console.log('Desconectado do servidor WebSocket');
+            addMessage('Conexão com o chatbot perdida.', 'ai-message');
+        };
+
+        ws.onerror = error => {
+            console.error('Erro no WebSocket:', error);
+            addMessage('Erro na conexão com o chatbot.', 'ai-message');
+        };
+
+        inputForm.addEventListener('submit', event => {
+            event.preventDefault();
+            const message = messageInput.value.trim();
+            if (message) {
+                addMessage(message, 'user-message');
+                ws.send(JSON.stringify({ text: message }));
+                messageInput.value = '';
+            }
+        });
+
+        function addMessage(text, type) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', type);
+            messageElement.innerHTML = `<div class="bubble">${text}</div>`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>
