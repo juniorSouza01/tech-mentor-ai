@@ -3,24 +3,27 @@ require('@tensorflow/tfjs-node');
 const use = require('@tensorflow-model/universal-sentence-encoder');
 const fs = require('fs');
 const path = require('path');
-const { model } = require('mongoose');
 
-
-let models;
 let encoder;
 let intents;
 let labels;
+let model;
+
+const INTENTS_FILE_PATH = path.join(__dirname, '../../intents.json'); 
+const MODEL_SAVE_PATH = 'file://./src/models/intent_classifier';
+const MODEL_LOAD_PATH = 'file://./src/models/intent_classifier/model.json';
 
 
 async function loadDataAndTrain() {
     console.log('Carregando dados de intenções...');
-    const intentsPath = path.join(__dirname, '../../intents.json');
-    const rawData = fs.readFileSync(intentsPath);
+    
+    const rawData = fs.readFileSync(INTENTS_FILE_PATH);
     intents = JSON.parse(rawData);
 
     const sentences = intents.map(item => item.text);
-    labels = [...new Set(intents.map(item => item.itent))];
-    const y_labels = intents.map(item => LayerVariable.indexOf(item.intent));
+    labels = [...new Set(intents.map(item => item.intent))]; 
+    
+    const y_labels = intents.map(item => labels.indexOf(item.intent));
 
     console.log('Carregando Universal Sentence Encoder...');
     encoder = await use.load();
@@ -32,7 +35,7 @@ async function loadDataAndTrain() {
     const ys = tf.oneHot(tf.tensor1d(y_labels, 'int32'), labels.length);
 
 
-    console.log('Construindo modelo de classsificação de intenção...');
+    console.log('Construindo modelo de classificação de intenção...');
     model = tf.sequential();
     model.add(tf.layers.dense({inputShape: [xs.shape[1]], units: 128, activation: 'relu'}));
     model.add(tf.layers.dense({ units: labels.length, activation: 'softmax'}));
@@ -56,7 +59,7 @@ async function loadDataAndTrain() {
     });
 
     console.log('Modelo de intenção treinado com sucesso!');
-    await model.save('file://./src/models/intent_classifier');
+    await model.save(MODEL_SAVE_PATH); 
     console.log('Modelo de intenção salvo.')
 
 }
@@ -65,16 +68,73 @@ async function loadDataAndTrain() {
 async function loadModelAndEncoder() {
     console.log('Carregando modelo de intenção e encoder...');
     encoder = await use.load();
-    model = await tf.loadLayersModel('file://./src/models/intent_classifier/model.json');
+    model = await tf.loadLayersModel(MODEL_LOAD_PATH); 
 
-    const intentsPath = path.join(__dirname, '../../data/intents.json');
-    const rawData = fs.readFileSync(intentsPath);
+    const rawData = fs.readFileSync(INTENTS_FILE_PATH); 
     intents = JSON.parse(rawData);
     labels = [...new Set(intents.map(item => item.intent))];
-    console.log('Modelo e enconder carregados.');
+    console.log('Modelo e encoder carregados.');
 }
 
 
 async function predictIntent(text){
+    if (!model){
+        console.warn('Modelo não carregado. Tentando carregar...');
+        await loadDataAndTrain(); 
+    }
+    if(!encoder){
+        console.warn("Encoder não carregado. Tentando carregar...");
+        await loadModelAndEncoder();
+    }
+
+    const embedding = await encoder.embed([text]);
+    const prediction = model.predict(embedding);
+    const intentIndex = prediction.argMax(-1).dataSync()[0];
+    const confidence = prediction.dataSync()[intentIndex];
+    const predictedIntent = labels[intentIndex];
+
+    let entity = null;
     
+    for (const item of intents) {
+        if (item.text === text && item.entity) {
+            entity = item.entity;
+            break;
+        }
+    }
+    
+    if (!entity) {
+        const lowerText = text.toLowerCase();
+        if (lowerText.includes('nodejs') || lowerText.includes('node.js')) entity = 'Node.js';
+        else if (lowerText.includes('ia') || lowerText.includes('inteligencia artificial')) entity = 'Inteligência Artificial';
+        else if (lowerText.includes('javascript') || lowerText.includes('js')) entity = 'JavaScript';
+        else if (lowerText.includes('reconhecimento facial')) entity = 'reconhecimento facial';
+        else if (lowerText.includes('leitura de placa')) entity = 'leitura de placa';
+        else if (lowerText.includes('supermemory')) entity = 'supermemory';
+    }
+
+
+    return { intent: predictedIntent, entity, confidence };
 }
+
+
+(async () => {
+    const localModelPath = path.join(__dirname, './src/models/intent_classifier/model.json');
+
+    if (fs.existsSync(localModelPath)) {
+        try {
+            await loadModelAndEncoder();
+            console.log("Modelo de intenção carregado do disco.");
+        } catch (error) {
+            console.warn("Erro ao carregar o modelo, mesmo com o arquivo existente. Tentando treinar novo modelo...");
+            await loadDataAndTrain();
+        }
+    } else {
+        console.warn("Modelo de intenção não encontrado no disco. Treinando novo modelo...");
+        await loadDataAndTrain();
+    }
+})();
+
+
+module.exports = {
+    predictIntent,
+};
