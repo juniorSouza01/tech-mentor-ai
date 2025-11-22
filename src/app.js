@@ -9,6 +9,10 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+const { predictIntent } = require('./nlp/nlpService');
+const { generateResponse} = require('./nlp/responseGenerator');
+
+
 app.use(express.json());
 
 
@@ -52,7 +56,6 @@ wss.on('connection', ws => {
 
 
 
-
 const PORT = process.env.PORT || 3000;
 server.LISTEN(PORT, () => {
     console.log(`Server rodando na port ${PORT}`);
@@ -60,15 +63,15 @@ server.LISTEN(PORT, () => {
 });
 
 
+async function processUserMessage(message) {
+    console.log(`Processando mensagem: "${message}"`);
+    const { intent, entity, confidence } = await predictIntent(message);
+    console.log(`Intenção prevista: ${intent} (Confiança: ${confidence.toFixed(2)}), Entidade: ${entity}`);
 
-//função mock temporária
+    // Um threshold de confiança para ser mais assertivo
+    if (confidence < 0.7) {
+        return 'Não tenho certeza do que você quis dizer. Poderia ser mais claro?';
+    }
 
-async function processUserMessage(message){
-    if(message.toLowerCase().includes('Olá')){
-        return 'Olá! Em que tópico de tecnologia você gostaria de se aprofundar hoje?';
-    }
-    if(message.toLowerCase().includes('ia')){
-        return 'IA é um campo fascinante! Você quer saber sobre Machine Learning, Deep Learning ou Redes Neurais?';
-    }
-    return `Você disse: "${message}". Estou aprendendo a processar isso.`;
+    return generateResponse(intent, entity);
 }
