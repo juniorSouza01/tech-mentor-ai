@@ -60,3 +60,21 @@ async function loadDataAndTrain() {
     console.log('Modelo de intenção salvo.')
 
 }
+
+
+async function loadModelAndEncoder() {
+    console.log('Carregando modelo de intenção e encoder...');
+    encoder = await use.load();
+    model = await tf.loadLayersModel('file://./src/models/intent_classifier/model.json');
+
+    const intentsPath = path.join(__dirname, '../../data/intents.json');
+    const rawData = fs.readFileSync(intentsPath);
+    intents = JSON.parse(rawData);
+    labels = [...new Set(intents.map(item => item.intent))];
+    console.log('Modelo e enconder carregados.');
+}
+
+
+async function predictIntent(text){
+    
+}
