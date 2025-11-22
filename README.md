@@ -1,0 +1,1 @@
+modelo pré treinado Universal Sentence Encoder
