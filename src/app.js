@@ -65,7 +65,7 @@ async function processUserMessage(message) {
         const { intent, entity, confidence } = await predictIntent(message);
         console.log(`🧠 Intent: [${intent}] | Conf: ${(confidence * 100).toFixed(1)}% | Entity: ${entity}`);
 
-        if (confidence < 0.65) {
+        if (confidence < 0.45) {
             return 'Ainda estou aprendendo e não entendi muito bem. Pode reformular com termos mais técnicos?';
         }
         return generateResponse(intent, entity);

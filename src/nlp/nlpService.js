@@ -50,7 +50,7 @@ async function trainModel() {
     const ys = tf.oneHot(tf.tensor1d(y_labels, 'int32'), labels.length);
 
     await model.fit(embeddings, ys, {
-        epochs: 60,
+        epochs: 150,
         batchSize: 8,
         shuffle: true,
         callbacks: {
