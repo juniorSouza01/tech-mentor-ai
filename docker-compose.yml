@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  tech-mentor-ai:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - MONGO_URI=mongodb://mongo:27017/techmentor
+
+      - UV_THREADPOOL_SIZE=4 
+    volumes:
+    
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - mongo
+    networks:
+      - ai-net
+
+  mongo:
+    image: mongo:6.0
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - ai-net
+
+volumes:
+  mongo-data:
+
+networks:
+  ai-net:
+    driver: bridge

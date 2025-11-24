@@ -1,91 +1,90 @@
 const tf = require('@tensorflow/tfjs');
-require('@tensorflow/tfjs-node');
-const use = require('@tensorflow-model/universal-sentence-encoder');
+const tfnode = require('@tensorflow/tfjs-node');
+const use = require('@tensorflow-models/universal-sentence-encoder');
 const fs = require('fs');
 const path = require('path');
 
-let encoder;
-let intents;
-let labels;
-let model;
+let encoder = null;
+let model = null;
+let intents = [];
+let labels = [];
 
-const INTENTS_FILE_PATH = path.join(__dirname, '../../intents.json'); 
-const MODEL_SAVE_PATH = 'file://./src/models/intent_classifier';
-const MODEL_LOAD_PATH = 'file://./src/models/intent_classifier/model.json';
+const INTENTS_FILE_PATH = path.join(__dirname, '../../data/intents.json');
+const MODEL_DIR = path.join(__dirname, '../models/intent_classifier');
+const MODEL_SAVE_PATH = `file://${MODEL_DIR}`;
 
-
-async function loadDataAndTrain() {
-    console.log('Carregando dados de intenções...');
-    
+function loadIntentsData() {
     const rawData = fs.readFileSync(INTENTS_FILE_PATH);
     intents = JSON.parse(rawData);
+    labels = [...new Set(intents.map(item => item.intent))];
+}
+
+async function trainModel() {
+    console.log('🚀 Iniciando treinamento do modelo...');
+    loadIntentsData();
 
     const sentences = intents.map(item => item.text);
-    labels = [...new Set(intents.map(item => item.intent))]; 
-    
     const y_labels = intents.map(item => labels.indexOf(item.intent));
 
-    console.log('Carregando Universal Sentence Encoder...');
+    console.log('📊 Carregando Universal Sentence Encoder...');
     encoder = await use.load();
-    console.log('Encoder carregado.');
-
-    console.log('Gerando embeddings para as sentenças de treinamento...');
+    
+    console.log('🧮 Gerando embeddings...');
     const embeddings = await encoder.embed(sentences);
-    const xs = embeddings;
-    const ys = tf.oneHot(tf.tensor1d(y_labels, 'int32'), labels.length);
-
-
-    console.log('Construindo modelo de classificação de intenção...');
+    
     model = tf.sequential();
-    model.add(tf.layers.dense({inputShape: [xs.shape[1]], units: 128, activation: 'relu'}));
+    model.add(tf.layers.dense({
+        inputShape: [512], 
+        units: 128, 
+        activation: 'relu'
+    }));
+    model.add(tf.layers.dropout({ rate: 0.2 }));
     model.add(tf.layers.dense({ units: labels.length, activation: 'softmax'}));
 
-
     model.compile({
-        optimizer: tf.train.adam(),
+        optimizer: tf.train.adam(0.001),
         loss: 'categoricalCrossentropy',
         metrics: ['accuracy'],
     });
 
-    console.log('Iniciando treinamento do modelo de intenção');
-    await model.fit(xs, ys, {
-        epochs: 50,
-        batchSize: 16,
+    const ys = tf.oneHot(tf.tensor1d(y_labels, 'int32'), labels.length);
+
+    await model.fit(embeddings, ys, {
+        epochs: 60,
+        batchSize: 8,
+        shuffle: true,
         callbacks: {
             onEpochEnd: (epoch, log) => {
-                console.log(`Epoch ${epoch + 1}: loss = ${log.loss.toFixed(4)}, accuracy = ${log.acc.toFixed(4)}`);
+                if ((epoch + 1) % 10 === 0) console.log(`Epoch ${epoch + 1}: loss = ${log.loss.toFixed(4)}`);
             }
         }
     });
 
-    console.log('Modelo de intenção treinado com sucesso!');
-    await model.save(MODEL_SAVE_PATH); 
-    console.log('Modelo de intenção salvo.')
-
+    console.log('💾 Salvando modelo...');
+    await model.save(MODEL_SAVE_PATH);
 }
 
-
-async function loadModelAndEncoder() {
-    console.log('Carregando modelo de intenção e encoder...');
-    encoder = await use.load();
-    model = await tf.loadLayersModel(MODEL_LOAD_PATH); 
-
-    const rawData = fs.readFileSync(INTENTS_FILE_PATH); 
-    intents = JSON.parse(rawData);
-    labels = [...new Set(intents.map(item => item.intent))];
-    console.log('Modelo e encoder carregados.');
+async function initializeAI() {
+    try {
+        if (fs.existsSync(path.join(MODEL_DIR, 'model.json'))) {
+            console.log('📂 Carregando modelo existente do disco...');
+            encoder = await use.load();
+            model = await tf.loadLayersModel(`${MODEL_SAVE_PATH}/model.json`);
+            loadIntentsData();
+            console.log('✅ IA Inicializada (Modelo Carregado).');
+        } else {
+            console.log('⚠️ Modelo não encontrado. Iniciando treinamento...');
+            await trainModel();
+            console.log('✅ IA Inicializada (Novo Modelo Treinado).');
+        }
+    } catch (error) {
+        console.error('❌ Erro crítico na IA:', error);
+        await trainModel();
+    }
 }
 
-
-async function predictIntent(text){
-    if (!model){
-        console.warn('Modelo não carregado. Tentando carregar...');
-        await loadDataAndTrain(); 
-    }
-    if(!encoder){
-        console.warn("Encoder não carregado. Tentando carregar...");
-        await loadModelAndEncoder();
-    }
+async function predictIntent(text) {
+    if (!model || !encoder) throw new Error("IA não está pronta ainda.");
 
     const embedding = await encoder.embed([text]);
     const prediction = model.predict(embedding);
@@ -94,15 +93,12 @@ async function predictIntent(text){
     const predictedIntent = labels[intentIndex];
 
     let entity = null;
+    const lowerText = text.toLowerCase();
     
-    for (const item of intents) {
-        if (item.text === text && item.entity) {
-            entity = item.entity;
-            break;
-        }
-    }
+    const exactMatch = intents.find(i => i.text.toLowerCase() === lowerText && i.entity);
+    if (exactMatch) entity = exactMatch.entity;
     
-    if (!entity) {
+     if (!entity) {
         const lowerText = text.toLowerCase();
         if (lowerText.includes('nodejs') || lowerText.includes('node.js')) entity = 'Node.js';
         else if (lowerText.includes('ia') || lowerText.includes('inteligencia artificial')) entity = 'Inteligência Artificial';
@@ -112,29 +108,7 @@ async function predictIntent(text){
         else if (lowerText.includes('supermemory')) entity = 'supermemory';
     }
 
-
     return { intent: predictedIntent, entity, confidence };
 }
 
-
-(async () => {
-    const localModelPath = path.join(__dirname, './src/models/intent_classifier/model.json');
-
-    if (fs.existsSync(localModelPath)) {
-        try {
-            await loadModelAndEncoder();
-            console.log("Modelo de intenção carregado do disco.");
-        } catch (error) {
-            console.warn("Erro ao carregar o modelo, mesmo com o arquivo existente. Tentando treinar novo modelo...");
-            await loadDataAndTrain();
-        }
-    } else {
-        console.warn("Modelo de intenção não encontrado no disco. Treinando novo modelo...");
-        await loadDataAndTrain();
-    }
-})();
-
-
-module.exports = {
-    predictIntent,
-};
+module.exports = { predictIntent, initializeAI };

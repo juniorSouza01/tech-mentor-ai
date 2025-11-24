@@ -3,89 +3,83 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const mongoose = require('mongoose');
-
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const { predictIntent } = require('./nlp/nlpService');
-const { generateResponse} = require('./nlp/responseGenerator');
-const { addClient, startScheduling } = require('./src/services/schedulerService');
+const { predictIntent, initializeAI } = require('./nlp/nlpService');
+const { generateResponse } = require('./nlp/responseGenerator');
+const { addClient, startScheduling } = require('./services/schedulerService');
 
 const userContexts = {};
 
-
 app.use(express.json());
-
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-if(process.env.DB_URI) {
-    mongoose.connect(process.env.DB_URI, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-    })
-    .then(() => console.log('Conectado ao mongo'))
-    .catch(err => console.error('deu red com o mongo: ', err));
+if (process.env.MONGO_URI) {
+    mongoose.connect(process.env.MONGO_URI)
+        .then(() => console.log('✅ Conectado ao MongoDB'))
+        .catch(err => console.error('❌ Erro MongoDB:', err));
 }
 
-
 app.get('/', (req, res) => {
-    res.send('TechMentor AI está na ativa');
+    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
-
-//lógica do webSocket
+// Lógica WebSocket
 wss.on('connection', ws => {
-    console.log('cliente conectado via websocket');
+    console.log('🔌 Cliente conectado');
     addClient(ws);
 
     const clientId = Math.random().toString(36).substring(7);
     userContexts[clientId] = { history: [] };
 
-    ws.on('message', async message => {
-        console.log(`recebido ${message}`);
-        try{
-            const userMessage = JSON.parse(message);
-            const aiResponde = await processUserMessage(userMessage.text);
-            ws.send(JSON.stringify({text: aiResponde}));
+    ws.send(JSON.stringify({ text: 'Olá! Sou seu TechMentor AI. Como posso te ajudar a evoluir hoje?' }));
 
-            userContexts[clientId].history.push({ role: 'user', text: userMessage.text });
-            const aiResponse = await processUserMessage(userMessage.text, userContexts[clientId].history);
-            userContexts[clientId].history.push({ role: 'ai', text: aiResponse });
-            ws.send(JSON.stringify({ text: aiResponse }));
-        } catch (error){
-            console.error('erro ao processar mensagem do websocket: ', error);
-            ws.send(JSON.stringify({text: 'desculpe, houve um erro.'}));
+    ws.on('message', async message => {
+        try {
+            const parsedMessage = JSON.parse(message);
+            const userText = parsedMessage.text;
+            
+            userContexts[clientId].history.push({ role: 'user', text: userText });
+
+            const aiResponseText = await processUserMessage(userText);
+
+            ws.send(JSON.stringify({ text: aiResponseText }));
+            
+            userContexts[clientId].history.push({ role: 'ai', text: aiResponseText });
+
+        } catch (error) {
+            console.error('Erro no processamento:', error);
+            ws.send(JSON.stringify({ text: 'Desculpe, meu cérebro neural falhou momentaneamente.' }));
         }
     });
 
-    ws.on('close', () => {
-        console.log('cliente desconectado via websocket');
-    });
-
-    ws.send(JSON.stringify({text: 'Olá! Sou seu TechMentor AI. Como posso te ajudar hoje?'}));
+    ws.on('close', () => console.log('🔌 Cliente desconectado'));
 });
-
-
-
-const PORT = process.env.PORT || 3000;
-server.LISTEN(PORT, () => {
-    console.log(`Server rodando na port ${PORT}`);
-    console.log(`Acesse http://localhost:${PORT}`);
-    startScheduling();
-});
-
 
 async function processUserMessage(message) {
-    console.log(`Processando mensagem: "${message}"`);
-    const { intent, entity, confidence } = await predictIntent(message);
-    console.log(`Intenção prevista: ${intent} (Confiança: ${confidence.toFixed(2)}), Entidade: ${entity}`);
+    try {
+        const { intent, entity, confidence } = await predictIntent(message);
+        console.log(`🧠 Intent: [${intent}] | Conf: ${(confidence * 100).toFixed(1)}% | Entity: ${entity}`);
 
-    // Um threshold de confiança para ser mais assertivo
-    if (confidence < 0.7) {
-        return 'Não tenho certeza do que você quis dizer. Poderia ser mais claro?';
+        if (confidence < 0.65) {
+            return 'Ainda estou aprendendo e não entendi muito bem. Pode reformular com termos mais técnicos?';
+        }
+        return generateResponse(intent, entity);
+    } catch (e) {
+        console.error(e);
+        return "Estou inicializando meus modelos neurais, tente novamente em alguns segundos.";
     }
-
-    return generateResponse(intent, entity);
 }
+
+const PORT = process.env.PORT || 3000;
+
+initializeAI().then(() => {
+    server.listen(PORT, () => {
+        console.log(`\n🚀 TechMentor AI rodando em http://localhost:${PORT}`);
+        startScheduling();
+    });
+});
